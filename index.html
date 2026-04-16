@@ -60,14 +60,15 @@
       }
 
       const categoryMap = {
-        'tempered glass': ['tempered', 'toughened', 'tempered glass'],
-        'laminated glass': ['laminated', 'laminated glass'],
-        'float glass': ['float', 'float glass'],
-        'insulated glass unit': ['insulated', 'double glazed', 'insulated glass unit', 'igu'],
-        'mirror': ['mirror', 'mirrors'],
-        'aluminium hardware': ['aluminium', 'aluminum', 'hardware', 'aluminium hardware']
+        'Tempered Glass': ['tempered', 'toughened', 'tempered glass'],
+        'Laminated Glass': ['laminated', 'laminated glass'],
+        'Float Glass': ['float', 'float glass'],
+        'Insulated Glass Unit': ['insulated', 'double glazed', 'insulated glass unit', 'igu'],
+        'Mirror': ['mirror', 'mirrors'],
+        'Aluminium Hardware': ['aluminium', 'aluminum', 'hardware', 'aluminium hardware']
       };
 
+      // Loop-based category detection
       for (const [category, keywords] of Object.entries(categoryMap)) {
         if (keywords.some(keyword => normalized.includes(keyword))) {
           result.category = category;
@@ -123,13 +124,15 @@
     }
 
     // Validate if query has meaningful intent
-    function isValidQuery(parsedQuery) {
+    function isValidQuery(parsedQuery, query) {
       const hasCategory = parsedQuery.category !== null;
       const hasThickness = parsedQuery.thickness !== null;
       const hasUseCases = parsedQuery.useCases.length > 0;
       const hasFeatures = parsedQuery.features.length > 0;
+      const hasGlassKeyword = query.toLowerCase().includes('glass');
       
-      return hasCategory || hasThickness || hasUseCases || hasFeatures;
+      // Valid if has meaningful attributes OR contains "glass" keyword
+      return hasCategory || hasThickness || hasUseCases || hasFeatures || hasGlassKeyword;
     }
 
     function calculateScore(product, parsedQuery) {
@@ -146,6 +149,11 @@
           result.score -= 10;
         }
       }
+      
+      // No category penalty for thickness-only queries
+      if (!parsedQuery.category && parsedQuery.thickness && !parsedQuery.useCases.length && !parsedQuery.features.length) {
+        // Don't penalize for missing category when only thickness is specified
+      }
 
       if (parsedQuery.thickness && product.thickness) {
         if (product.thickness === parsedQuery.thickness) {
@@ -155,6 +163,11 @@
           result.score += 15;
           result.matchedFields.push('thickness (partial)');
         }
+      }
+      
+      // Thickness-only bonus - treat thickness as strong signal
+      if (parsedQuery.thickness && !parsedQuery.category && !parsedQuery.useCases.length && !parsedQuery.features.length) {
+        result.score += 10;
       }
 
       if (parsedQuery.useCases && parsedQuery.useCases.length > 0 && product.tags) {
@@ -229,8 +242,11 @@
       // Parse the query
       const parsedQuery = parseQuery(query);
       
+      // Debug logging
+      console.log("Parsed Query:", parsedQuery);
+      
       // Validate query - reject meaningless queries
-      if (!isValidQuery(parsedQuery)) {
+      if (!isValidQuery(parsedQuery, query)) {
         return [];
       }
       
@@ -240,6 +256,14 @@
       // Score all products with optimized explanation generation
       const scoredProducts = products.map(product => {
         const scoreResult = calculateScore(product, parsedQuery);
+        
+        // Prefer common categories for thickness-only queries
+        if (parsedQuery.thickness && !parsedQuery.category && !parsedQuery.useCases.length && !parsedQuery.features.length) {
+          const commonCategories = ['Tempered Glass', 'Float Glass', 'Laminated Glass'];
+          if (commonCategories.includes(product.category)) {
+            scoreResult.score += 5; // Small boost for common categories
+          }
+        }
         
         // Smart explanation generation with natural sentences
         let explanation = "";
@@ -312,8 +336,11 @@
         return 0;
       });
       
-      // Filter out low-relevance results (score < 30)
-      const relevantProducts = scoredProducts.filter(item => item.score >= 30);
+      // Filter out low-relevance results (score < 20)
+      const relevantProducts = scoredProducts.filter(item => item.score >= 20);
+      
+      // Debug logging
+      console.log("Scores:", relevantProducts.map(p => ({name: p.product.name, score: p.score})));
       
       // Return top 5 with product spread
       return relevantProducts.slice(0, 5).map(item => ({
