@@ -175,10 +175,10 @@ No dependencies required — runs directly in browser.
 
 ## 📌 Demo
 
-Add your deployed link or Loom video here
+[Live Demo](https://amalgus-pi.vercel.app/)
 
 ---
 
 ## 👨‍💻 Author
 
-Your Name
+Saad Arqam
