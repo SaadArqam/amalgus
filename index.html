@@ -193,6 +193,33 @@
         result.matchedFields.push(...matchedFeatures);
       }
 
+      // Enhanced scoring separation logic
+      const hasCategoryMatch = result.matchedFields.includes('category');
+      const hasThicknessMatch = result.matchedFields.some(field => field.startsWith('thickness'));
+      const hasUseCaseMatch = result.matchedFields.some(field => field.startsWith('use-cases'));
+      const hasFeatureMatch = result.matchedFields.some(field => field.startsWith('features') || field === 'color');
+      
+      // Strong match boost for category AND thickness
+      if (hasCategoryMatch && hasThicknessMatch) {
+        result.score += 15;
+      }
+      
+      // Multi-match boost for 3+ attributes
+      const attributeMatches = [hasCategoryMatch, hasThicknessMatch, hasUseCaseMatch, hasFeatureMatch].filter(Boolean).length;
+      if (attributeMatches >= 3) {
+        result.score += 10;
+      }
+      
+      // Use-case priority boost
+      if (hasUseCaseMatch) {
+        result.score += 10;
+      }
+      
+      // Penalty for weak matches (only 1 attribute)
+      if (attributeMatches === 1) {
+        result.score -= 10;
+      }
+
       result.score = Math.max(0, Math.min(100, result.score));
 
       return result;
@@ -214,40 +241,56 @@
       const scoredProducts = products.map(product => {
         const scoreResult = calculateScore(product, parsedQuery);
         
-        // Optimized explanation building
+        // Smart explanation generation with natural sentences
         let explanation = "";
-        const parts = [];
         const { matchedFields } = scoreResult;
+        const score = scoreResult.score;
         
-        // Use direct property access instead of includes for better performance
-        if (matchedFields[0] === 'category' || matchedFields[1] === 'category' || matchedFields[2] === 'category') {
-          parts.push(`${product.category} category`);
+        // Build natural explanation based on matched attributes
+        const explanationParts = [];
+        
+        // Category match
+        if (matchedFields.includes('category')) {
+          explanationParts.push(`This ${product.category.toLowerCase()} matches your requirements`);
         }
         
-        if (matchedFields[0] === 'thickness (exact)' || matchedFields[1] === 'thickness (exact)' || matchedFields[2] === 'thickness (exact)') {
-          parts.push(`${product.thickness}mm thickness`);
-        } else if (matchedFields[0] === 'thickness (partial)' || matchedFields[1] === 'thickness (partial)' || matchedFields[2] === 'thickness (partial)') {
-          parts.push(`similar thickness (${product.thickness}mm)`);
+        // Thickness match
+        if (matchedFields.includes('thickness (exact)')) {
+          explanationParts.push(`with the exact ${product.thickness}mm thickness you need`);
+        } else if (matchedFields.includes('thickness (partial)')) {
+          explanationParts.push(`with a similar ${product.thickness}mm thickness`);
         }
         
-        // Find use-case and feature matches efficiently
-        let useCaseText = "";
-        let featureText = "";
+        // Use case matches
+        const useCaseMatch = matchedFields.find(field => field.startsWith('use-cases:'));
+        if (useCaseMatch) {
+          const useCases = useCaseMatch.replace('use-cases: ', '');
+          explanationParts.push(`perfect for ${useCases}`);
+        }
         
-        for (let i = 0; i < matchedFields.length; i++) {
-          const field = matchedFields[i];
-          if (field.startsWith('use-cases:')) {
-            useCaseText = field.substring(11); // Remove 'use-cases: '
-            parts.push(`suitable for ${useCaseText}`);
-          } else if (field.startsWith('features:')) {
-            featureText = field.substring(10); // Remove 'features: '
-            parts.push(`with ${featureText}`);
-          } else if (field === 'color') {
-            parts.push(`${product.color} finish`);
+        // Feature matches
+        const featureMatch = matchedFields.find(field => field.startsWith('features:'));
+        if (featureMatch) {
+          const features = featureMatch.replace('features: ', '');
+          explanationParts.push(`featuring ${features}`);
+        }
+        
+        // Color match
+        if (matchedFields.includes('color')) {
+          explanationParts.push(`in ${product.color} finish`);
+        }
+        
+        // Build final explanation
+        if (explanationParts.length > 0) {
+          explanation = explanationParts.join(' and ') + '.';
+          
+          // Add mismatch hint for low scores
+          if (score < 50) {
+            explanation += ' However, it may not fully match all your requirements.';
           }
+        } else {
+          explanation = 'This product has some relevant characteristics.';
         }
-        
-        explanation = parts.join(', ');
         
         return {
           score: scoreResult.score,
@@ -269,8 +312,11 @@
         return 0;
       });
       
+      // Filter out low-relevance results (score < 30)
+      const relevantProducts = scoredProducts.filter(item => item.score >= 30);
+      
       // Return top 5 with product spread
-      return scoredProducts.slice(0, 5).map(item => ({
+      return relevantProducts.slice(0, 5).map(item => ({
         ...item.product,
         score: item.score,
         explanation: item.explanation
@@ -408,15 +454,22 @@
       const [results, setResults] = useState([]);
       const [hasSearched, setHasSearched] = useState(false);
       const [selectedCategory, setSelectedCategory] = useState("All");
+      const [loading, setLoading] = useState(false);
       const handleSearch = () => {
-        const filteredProducts = selectedCategory === "All"
-          ? products
-          : products.filter(p => p.category === selectedCategory);
+        setLoading(true);
         
-        const matched = matchProducts(query, filteredProducts);
-        console.log('Search results:', matched);
-        setResults(matched);
-        setHasSearched(true);
+        // Simulate AI processing delay for better UX
+        setTimeout(() => {
+          const filteredProducts = selectedCategory === "All"
+            ? products
+            : products.filter(p => p.category === selectedCategory);
+          
+          const matched = matchProducts(query, filteredProducts);
+          console.log('Search results:', matched);
+          setResults(matched);
+          setHasSearched(true);
+          setLoading(false);
+        }, 300);
       };
 
       const handleKeyPress = (e) => {
@@ -429,6 +482,7 @@
         setQuery("");
         setResults([]);
         setHasSearched(false);
+        setLoading(false);
       };
 
       const displayProducts = hasSearched ? results : 
@@ -499,34 +553,63 @@
               )}
             </div>
 
-            {/* Results Section */}
-            <div className="mb-6">
-              <h2 className="text-2xl font-semibold text-white mb-6">
-                {hasSearched ? "Top Matches for your Requirement" : "Browse Products"}
-              </h2>
-            </div>
-
-            {/* Results Grid */}
-            {displayProducts.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {displayProducts.map((product, index) => (
-                  <ProductCard key={`${product.id}-${index}`} product={product} />
-                ))}
-              </div>
-            ) : (
+            {/* Loading State */}
+            {loading && (
               <div className="text-center py-16">
                 <div className="backdrop-blur-md bg-white/5 border border-white/10 rounded-xl p-8">
+                  <div className="flex items-center justify-center mb-4">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-amber-400"></div>
+                  </div>
                   <h3 className="text-xl font-semibold text-white mb-2">
-                    {hasSearched ? "No matches found" : "No products available"}
+                    Finding best matches...
                   </h3>
                   <p className="text-gray-400">
-                    {hasSearched 
-                      ? "Try different keywords or clear search to browse all products."
-                      : "Check back later for new products."
-                    }
+                    Analyzing your requirements against our catalog
                   </p>
                 </div>
               </div>
+            )}
+
+            {/* Results Section */}
+            {!loading && (
+              <>
+                <div className="mb-6">
+                  <div className="flex justify-between items-end">
+                    <h2 className="text-2xl font-semibold text-white mb-2">
+                      {hasSearched ? "Top Matches for your Requirement" : "Browse Products"}
+                    </h2>
+                    {displayProducts.length > 0 && (
+                      <p className="text-gray-400 text-sm">
+                        Showing {displayProducts.length} result{displayProducts.length !== 1 ? 's' : ''}
+                        {selectedCategory !== "All" && ` in ${selectedCategory}`}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Results Grid */}
+                {displayProducts.length > 0 ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {displayProducts.map((product, index) => (
+                      <ProductCard key={`${product.id}-${index}`} product={product} />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-16">
+                    <div className="backdrop-blur-md bg-white/5 border border-white/10 rounded-xl p-8">
+                      <h3 className="text-xl font-semibold text-white mb-2">
+                        {hasSearched ? "No relevant products found" : "No products available"}
+                      </h3>
+                      <p className="text-gray-400">
+                        {hasSearched 
+                          ? "No relevant products found. Try specifying thickness, type, or use-case."
+                          : "Check back later for new products."
+                        }
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
