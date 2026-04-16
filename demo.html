@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Product Matching Demo</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        // Include our functions from parseQuery.js
+        function parseQuery(query) {
+            const normalized = query.toLowerCase().replace(/\s+/g, ' ').trim();
+            
+            const result = {
+                thickness: null,
+                category: null,
+                color: null,
+                useCases: [],
+                features: []
+            };
+
+            const thicknessMatch = normalized.match(/(\d+)\s*mm/);
+            if (thicknessMatch) {
+                result.thickness = parseInt(thicknessMatch[1]);
+            }
+
+            const categoryMap = {
+                'tempered glass': ['tempered', 'toughened', 'tempered glass'],
+                'laminated glass': ['laminated', 'laminated glass'],
+                'float glass': ['float', 'float glass'],
+                'insulated glass unit': ['insulated', 'double glazed', 'insulated glass unit', 'igu'],
+                'mirror': ['mirror', 'mirrors'],
+                'aluminium hardware': ['aluminium', 'aluminum', 'hardware', 'aluminium hardware']
+            };
+
+            for (const [category, keywords] of Object.entries(categoryMap)) {
+                if (keywords.some(keyword => normalized.includes(keyword))) {
+                    result.category = category;
+                    break;
+                }
+            }
+
+            const colorMap = {
+                'clear': ['clear', 'transparent'],
+                'bronze': ['bronze', 'brown'],
+                'frosted': ['frosted', 'opaque', 'privacy'],
+                'tinted': ['tinted', 'colored', 'smoked']
+            };
+
+            for (const [color, keywords] of Object.entries(colorMap)) {
+                if (keywords.some(keyword => normalized.includes(keyword))) {
+                    result.color = color;
+                    break;
+                }
+            }
+
+            const useCaseMap = {
+                'partition': ['partition', 'divider', 'cubicle'],
+                'office': ['office', 'commercial', 'workplace'],
+                'balcony': ['balcony', 'balconies'],
+                'railing': ['railing', 'railings', 'guard', 'barrier'],
+                'window': ['window', 'windows', 'glazing'],
+                'residential': ['residential', 'home', 'house', 'domestic']
+            };
+
+            for (const [useCase, keywords] of Object.entries(useCaseMap)) {
+                if (keywords.some(keyword => normalized.includes(keyword))) {
+                    result.useCases.push(useCase);
+                }
+            }
+
+            const featureMap = {
+                'uv': ['uv', 'ultraviolet', 'sun protection'],
+                'polished': ['polished', 'smooth', 'finished'],
+                'safety': ['safety', 'secure', 'protective'],
+                'energy': ['energy', 'efficient', 'thermal'],
+                'budget': ['budget', 'cheap', 'affordable', 'economical'],
+                'low-e': ['low-e', 'low e', 'emissivity']
+            };
+
+            for (const [feature, keywords] of Object.entries(featureMap)) {
+                if (keywords.some(keyword => normalized.includes(keyword))) {
+                    result.features.push(feature);
+                }
+            }
+
+            return result;
+        }
+
+        function calculateScore(product, parsedQuery) {
+            const result = {
+                score: 0,
+                matchedFields: []
+            };
+
+            if (parsedQuery.category && product.category) {
+                if (product.category.toLowerCase() === parsedQuery.category.toLowerCase()) {
+                    result.score += 30;
+                    result.matchedFields.push('category');
+                } else {
+                    result.score -= 10;
+                }
+            }
+
+            if (parsedQuery.thickness && product.thickness) {
+                if (product.thickness === parsedQuery.thickness) {
+                    result.score += 25;
+                    result.matchedFields.push('thickness (exact)');
+                } else if (Math.abs(product.thickness - parsedQuery.thickness) <= 2) {
+                    result.score += 15;
+                    result.matchedFields.push('thickness (partial)');
+                }
+            }
+
+            if (parsedQuery.useCases && parsedQuery.useCases.length > 0 && product.tags) {
+                const matchedTags = parsedQuery.useCases.filter(useCase => 
+                    product.tags.some(tag => tag.toLowerCase() === useCase.toLowerCase())
+                );
+                if (matchedTags.length > 0) {
+                    result.score += 25;
+                    result.matchedFields.push(`use-cases: ${matchedTags.join(', ')}`);
+                }
+            }
+
+            let featureColorScore = 0;
+            const matchedFeatures = [];
+
+            if (parsedQuery.color && product.color) {
+                if (product.color.toLowerCase() === parsedQuery.color.toLowerCase()) {
+                    featureColorScore += 10;
+                    matchedFeatures.push('color');
+                }
+            }
+
+            if (parsedQuery.features && parsedQuery.features.length > 0) {
+                const allText = `${product.description || ''} ${(product.tags || []).join(' ')}`.toLowerCase();
+                const matchedFeatureList = parsedQuery.features.filter(feature => 
+                    allText.includes(feature.toLowerCase())
+                );
+                if (matchedFeatureList.length > 0) {
+                    featureColorScore += 10;
+                    matchedFeatures.push(`features: ${matchedFeatureList.join(', ')}`);
+                }
+            }
+
+            if (featureColorScore > 0) {
+                result.score += featureColorScore;
+                result.matchedFields.push(...matchedFeatures);
+            }
+
+            result.score = Math.max(0, Math.min(100, result.score));
+
+            return result;
+        }
+
+        function matchProducts(query, products) {
+            const parsedQuery = parseQuery(query);
+            
+            const scoredProducts = products.map(product => {
+                const scoreResult = calculateScore(product, parsedQuery);
+                
+                let explanation = "Matched: ";
+                const explanations = [];
+                
+                if (scoreResult.matchedFields.includes('category')) {
+                    explanations.push(`${product.category} category`);
+                }
+                
+                if (scoreResult.matchedFields.includes('thickness (exact)')) {
+                    explanations.push(`${product.thickness}mm thickness`);
+                } else if (scoreResult.matchedFields.includes('thickness (partial)')) {
+                    explanations.push(`similar thickness (${product.thickness}mm)`);
+                }
+                
+                const useCaseMatch = scoreResult.matchedFields.find(field => field.startsWith('use-cases:'));
+                if (useCaseMatch) {
+                    const useCases = useCaseMatch.replace('use-cases: ', '');
+                    explanations.push(`suitable for ${useCases}`);
+                }
+                
+                if (scoreResult.matchedFields.includes('color')) {
+                    explanations.push(`${product.color} finish`);
+                }
+                
+                const featureMatch = scoreResult.matchedFields.find(field => field.startsWith('features:'));
+                if (featureMatch) {
+                    const features = featureMatch.replace('features: ', '');
+                    explanations.push(`with ${features}`);
+                }
+                
+                explanation += explanations.join(', ');
+                
+                return {
+                    ...product,
+                    score: scoreResult.score,
+                    explanation: explanation
+                };
+            });
+            
+            scoredProducts.sort((a, b) => {
+                if (b.score !== a.score) {
+                    return b.score - a.score;
+                }
+                
+                if (parsedQuery.features.includes('budget')) {
+                    return (a.price || 0) - (b.price || 0);
+                }
+                
+                return 0;
+            });
+            
+            return scoredProducts.slice(0, 5);
+        }
+
+        // ProductCard Component
+        const ProductCard = ({ product }) => {
+            const getScoreColor = (score) => {
+                if (score >= 80) return 'bg-green-500';
+                if (score >= 50) return 'bg-amber-500';
+                return 'bg-red-500';
+            };
+
+            const getScoreTextColor = (score) => {
+                if (score >= 80) return 'text-green-600';
+                if (score >= 50) return 'text-amber-600';
+                return 'text-red-600';
+            };
+
+            return (
+                <div className="relative backdrop-blur-md bg-white/10 border border-white/20 rounded-xl p-6 shadow-xl hover:shadow-2xl transition-all duration-300 hover:bg-white/15">
+                    <div className="flex justify-between items-start mb-4">
+                        <div className="flex-1">
+                            <h3 className="text-xl font-bold text-gray-900 mb-1">{product.name}</h3>
+                            <p className="text-sm text-gray-600 font-medium">{product.supplier}</p>
+                        </div>
+                        <div className="text-right">
+                            <p className="text-2xl font-bold text-gray-900">${product.price}</p>
+                            <p className="text-xs text-gray-500">per sqm</p>
+                        </div>
+                    </div>
+
+                    <div className="mb-4">
+                        <div className="flex justify-between items-center mb-2">
+                            <span className="text-sm font-medium text-gray-700">Match Score</span>
+                            <span className={`text-sm font-bold ${getScoreTextColor(product.score)}`}>
+                                {product.score}%
+                            </span>
+                        </div>
+                        <div className="w-full bg-gray-200/50 rounded-full h-2 backdrop-blur-sm">
+                            <div
+                                className={`h-2 rounded-full transition-all duration-500 ${getScoreColor(product.score)}`}
+                                style={{ width: `${product.score}%` }}
+                            />
+                        </div>
+                    </div>
+
+                    <div className="mb-4">
+                        <p className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-2">Specifications</p>
+                        <div className="flex flex-wrap gap-2">
+                            {product.thickness && (
+                                <span className="px-3 py-1 bg-blue-100/70 text-blue-800 text-xs font-medium rounded-full backdrop-blur-sm border border-blue-200/50">
+                                    {product.thickness}mm
+                                </span>
+                            )}
+                            {product.size && (
+                                <span className="px-3 py-1 bg-purple-100/70 text-purple-800 text-xs font-medium rounded-full backdrop-blur-sm border border-purple-200/50">
+                                    {product.size}
+                                </span>
+                            )}
+                            {product.coating && (
+                                <span className="px-3 py-1 bg-green-100/70 text-green-800 text-xs font-medium rounded-full backdrop-blur-sm border border-green-200/50">
+                                    {product.coating}
+                                </span>
+                            )}
+                            {product.category && (
+                                <span className="px-3 py-1 bg-gray-100/70 text-gray-800 text-xs font-medium rounded-full backdrop-blur-sm border border-gray-200/50">
+                                    {product.category}
+                                </span>
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="border-t border-white/20 pt-4">
+                        <p className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-2">Why This Match</p>
+                        <p className="text-sm text-gray-700 leading-relaxed bg-white/30 backdrop-blur-sm rounded-lg p-3 border border-white/20">
+                            {product.explanation}
+                        </p>
+                    </div>
+
+                    <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-white/5 to-transparent pointer-events-none" />
+                </div>
+            );
+        };
+
+        // Demo App
+        const DemoApp = () => {
+            const [query, setQuery] = React.useState('');
+            const [results, setResults] = React.useState([]);
+            const [hasSearched, setHasSearched] = React.useState(false);
+            
+            // Filter states
+            const [selectedCategory, setSelectedCategory] = React.useState('all');
+            const [maxPrice, setMaxPrice] = React.useState(500);
+            const [thicknessRange, setThicknessRange] = React.useState([2, 24]);
+
+            const sampleProducts = [
+                {
+                    name: 'Tempered Office Glass',
+                    supplier: 'GlassTech Industries',
+                    category: 'tempered glass',
+                    thickness: 6,
+                    color: 'clear',
+                    size: '2440x1220mm',
+                    coating: 'Low-E',
+                    tags: ['office', 'partition', 'safety'],
+                    description: 'UV protection polished safety glass',
+                    price: 120
+                },
+                {
+                    name: 'Budget Tempered Glass',
+                    supplier: 'EcoGlass Solutions',
+                    category: 'tempered glass',
+                    thickness: 8,
+                    color: 'clear',
+                    size: '2000x1000mm',
+                    coating: 'Standard',
+                    tags: ['office', 'partition'],
+                    description: 'Basic tempered glass for partitions',
+                    price: 80
+                },
+                {
+                    name: 'Premium Laminated Glass',
+                    supplier: 'Luxury Glass Co',
+                    category: 'laminated glass',
+                    thickness: 6,
+                    color: 'frosted',
+                    size: '2440x1220mm',
+                    coating: 'UV Protection',
+                    tags: ['office', 'privacy'],
+                    description: 'Frosted laminated glass with UV protection',
+                    price: 150
+                },
+                {
+                    name: 'Clear Float Glass',
+                    supplier: 'Standard Glass Ltd',
+                    category: 'float glass',
+                    thickness: 10,
+                    color: 'clear',
+                    size: '3000x2000mm',
+                    coating: 'None',
+                    tags: ['window', 'residential'],
+                    description: 'Standard clear float glass for windows',
+                    price: 60
+                },
+                {
+                    name: 'Insulated Glass Unit',
+                    supplier: 'Thermal Glass Systems',
+                    category: 'insulated glass unit',
+                    thickness: 24,
+                    color: 'clear',
+                    size: '1200x1200mm',
+                    coating: 'Low-E',
+                    tags: ['window', 'energy', 'residential'],
+                    description: 'Double glazed unit with thermal insulation',
+                    price: 200
+                }
+            ];
+
+            // Get unique categories for dropdown
+            const categories = ['all', ...new Set(sampleProducts.map(p => p.category))];
+
+            // Apply filters to products
+            const getFilteredProducts = () => {
+                return sampleProducts.filter(product => {
+                    const categoryMatch = selectedCategory === 'all' || product.category === selectedCategory;
+                    const priceMatch = product.pricePerSqm <= maxPrice;
+                    const thicknessMatch = product.thickness >= thicknessRange[0] && product.thickness <= thicknessRange[1];
+                    return categoryMatch && priceMatch && thicknessMatch;
+                });
+            };
+
+            const handleSearch = () => {
+                const filteredProducts = getFilteredProducts();
+                if (query.trim()) {
+                    const matchResults = matchProducts(query, filteredProducts);
+                    setResults(matchResults);
+                } else {
+                    setResults(filteredProducts.slice(0, 5));
+                }
+                setHasSearched(true);
+            };
+
+            const handleKeyPress = (e) => {
+                if (e.key === 'Enter') {
+                    handleSearch();
+                }
+            };
+
+            const displayProducts = hasSearched ? results : getFilteredProducts().slice(0, 5);
+
+            return (
+                <div className="min-h-screen p-8">
+                    <div className="max-w-6xl mx-auto">
+                        <h1 className="text-4xl font-bold text-white mb-8 text-center">Product Matching System</h1>
+                        
+                        <div className="backdrop-blur-md bg-white/10 border border-white/20 rounded-xl p-6 mb-8">
+                            <label className="block text-white font-semibold mb-4">Search Query:</label>
+                            <div className="flex gap-3 mb-6">
+                                <input
+                                    type="text"
+                                    value={query}
+                                    onChange={(e) => setQuery(e.target.value)}
+                                    onKeyPress={handleKeyPress}
+                                    className="flex-1 px-4 py-3 rounded-lg bg-white/20 border border-white/30 text-white placeholder-white/70 focus:outline-none focus:ring-2 focus:ring-white/50"
+                                    placeholder="Enter your product requirements..."
+                                />
+                                <button
+                                    onClick={handleSearch}
+                                    className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                                >
+                                    Search
+                                </button>
+                            </div>
+
+                            {/* Filters */}
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                {/* Category Filter */}
+                                <div>
+                                    <label className="block text-white text-sm font-medium mb-2">Category</label>
+                                    <select
+                                        value={selectedCategory}
+                                        onChange={(e) => setSelectedCategory(e.target.value)}
+                                        className="w-full px-3 py-2 rounded-lg bg-white/20 border border-white/30 text-white focus:outline-none focus:ring-2 focus:ring-white/50"
+                                    >
+                                        {categories.map(category => (
+                                            <option key={category} value={category} className="text-gray-900">
+                                                {category === 'all' ? 'All Categories' : category}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                {/* Max Price Filter */}
+                                <div>
+                                    <label className="block text-white text-sm font-medium mb-2">
+                                        Max Price: ₹{maxPrice}/sqm
+                                    </label>
+                                    <input
+                                        type="range"
+                                        min="50"
+                                        max="500"
+                                        step="10"
+                                        value={maxPrice}
+                                        onChange={(e) => setMaxPrice(Number(e.target.value))}
+                                        className="w-full h-2 bg-white/20 rounded-lg appearance-none cursor-pointer"
+                                    />
+                                    <div className="flex justify-between text-xs text-white/70 mt-1">
+                                        <span>₹50</span>
+                                        <span>₹500</span>
+                                    </div>
+                                </div>
+
+                                {/* Thickness Range Filter */}
+                                <div>
+                                    <label className="block text-white text-sm font-medium mb-2">
+                                        Thickness: {thicknessRange[0]}mm - {thicknessRange[1]}mm
+                                    </label>
+                                    <div className="space-y-2">
+                                        <input
+                                            type="range"
+                                            min="2"
+                                            max="24"
+                                            value={thicknessRange[0]}
+                                            onChange={(e) => setThicknessRange([Number(e.target.value), thicknessRange[1]])}
+                                            className="w-full h-2 bg-white/20 rounded-lg appearance-none cursor-pointer"
+                                        />
+                                        <input
+                                            type="range"
+                                            min="2"
+                                            max="24"
+                                            value={thicknessRange[1]}
+                                            onChange={(e) => setThicknessRange([thicknessRange[0], Number(e.target.value)])}
+                                            className="w-full h-2 bg-white/20 rounded-lg appearance-none cursor-pointer"
+                                        />
+                                    </div>
+                                    <div className="flex justify-between text-xs text-white/70 mt-1">
+                                        <span>2mm</span>
+                                        <span>24mm</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {!hasSearched && (
+                                <p className="text-white/70 text-sm mt-4">Showing filtered products. Enter a search query to find matches.</p>
+                            )}
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {displayProducts.map((product, index) => (
+                                <ProductCard key={index} product={product} />
+                            ))}
+                        </div>
+
+                        {hasSearched && results.length === 0 && (
+                            <div className="text-center py-12">
+                                <p className="text-white text-lg">No products found matching your query.</p>
+                                <p className="text-white/70 mt-2">Try different keywords or browse all products.</p>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        ReactDOM.render(<DemoApp />, document.getElementById('root'));
+    </script>
+</body>
+</html>
