@@ -376,6 +376,16 @@
       return result;
     }
 
+    // Validate if query has meaningful intent
+    function isValidQuery(parsedQuery) {
+      const hasCategory = parsedQuery.category !== null;
+      const hasThickness = parsedQuery.thickness !== null;
+      const hasUseCases = parsedQuery.useCases.length > 0;
+      const hasFeatures = parsedQuery.features.length > 0;
+      
+      return hasCategory || hasThickness || hasUseCases || hasFeatures;
+    }
+
     function calculateScore(product, parsedQuery) {
       const result = {
         score: 0,
@@ -443,8 +453,15 @@
     }
 
     function matchProducts(query, products) {
+      // Parse the query
       const parsedQuery = parseQuery(query);
       
+      // Validate query - reject meaningless queries
+      if (!isValidQuery(parsedQuery)) {
+        return [];
+      }
+      
+      // Score all products
       const scoredProducts = products.map(product => {
         const scoreResult = calculateScore(product, parsedQuery);
         
@@ -501,7 +518,7 @@
       return scoredProducts.slice(0, 5);
     }
 
-    // 🔹 Step 3: ProductCard Component
+    // 🔹 Step 3:// ProductCard Component
     function ProductCard({ product }) {
       const getScoreColor = (score) => {
         if (score >= 80) return 'bg-green-500';
@@ -515,52 +532,106 @@
         return 'text-red-400';
       };
 
+      // Generate use case text from tags
+      const getUseCaseText = () => {
+        if (product.tags && product.tags.length > 0) {
+          const useCases = product.tags.filter(tag => 
+            ['office', 'partition', 'window', 'balcony', 'railing', 'residential', 'commercial'].includes(tag)
+          );
+          if (useCases.length > 0) {
+            return useCases.map(tag => 
+              tag === 'office' ? 'office spaces' :
+              tag === 'partition' ? 'partitions' :
+              tag === 'window' ? 'windows' :
+              tag === 'balcony' ? 'balcony railings' :
+              tag === 'railing' ? 'railings' :
+              tag === 'residential' ? 'residential projects' :
+              tag === 'commercial' ? 'commercial buildings' :
+              tag
+            ).slice(0, 2).join(', ');
+          }
+        }
+        return 'general applications';
+      };
+
       return (
-        <div className="relative backdrop-blur-md bg-white/10 border border-white/20 rounded-xl p-6 shadow-lg hover:shadow-xl transition-all duration-300 hover:bg-white/15">
-          <div className="flex justify-between items-start mb-4">
-            <div className="flex-1">
-              <h3 className="text-lg font-bold text-white mb-1">{product.name}</h3>
-              <p className="text-sm text-gray-400">{product.supplier}</p>
+        <div className="relative backdrop-blur-md bg-white/10 border border-white/20 rounded-xl p-8 shadow-lg hover:shadow-2xl hover:scale-105 transition-all duration-300 ease-out hover:bg-white/15">
+          
+          {/* Product Title Section */}
+          <div className="flex justify-between items-start mb-6">
+            <div className="flex-1 pr-4">
+              <h3 className="text-xl font-bold text-white mb-2 leading-tight">{product.name}</h3>
+              <p className="text-sm text-gray-500 font-medium">{product.supplier}</p>
             </div>
-            <div className="text-right">
-              <p className="text-xl font-bold text-amber-400">₹{product.pricePerSqm}</p>
-              <p className="text-xs text-gray-400">per sqm</p>
+            <div className="text-right pl-2">
+              <p className="text-2xl font-bold text-amber-400">¥{product.pricePerSqm}</p>
+              <p className="text-xs text-gray-500 uppercase tracking-wide">per sqm</p>
             </div>
           </div>
 
-          <div className="mb-4">
-            <div className="flex justify-between items-center mb-2">
-              <span className="text-sm font-medium text-gray-300">Match Score</span>
-              <span className={`text-sm font-bold ${getScoreTextColor(product.score)}`}>
+          {/* Match Score - Moved higher for visibility */}
+          <div className="mb-6">
+            <div className="flex justify-between items-center mb-3">
+              <span className="text-sm font-semibold text-gray-300">Match Score</span>
+              <span className={`text-lg font-bold ${getScoreTextColor(product.score)}`}>
                 {product.score}%
               </span>
             </div>
-            <div className="w-full bg-gray-700/50 rounded-full h-2">
+            <div className="w-full bg-gray-700/50 rounded-full h-3">
               <div
-                className={`h-2 rounded-full transition-all duration-500 ${getScoreColor(product.score)}`}
+                className={`h-3 rounded-full transition-all duration-700 ease-out ${getScoreColor(product.score)}`}
                 style={{ width: `${product.score}%` }}
               />
             </div>
           </div>
 
-          <div className="mb-4">
+          {/* Quick Spec Summary */}
+          <div className="mb-6">
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Specifications</p>
             <div className="flex flex-wrap gap-2">
-              <span className="px-3 py-1 bg-blue-500/20 text-blue-300 text-xs font-medium rounded-full border border-blue-400/30">
+              <span className="px-3 py-1 bg-blue-500/20 text-blue-300 text-xs font-semibold rounded-full border border-blue-400/30 backdrop-blur-sm">
                 {product.thickness}mm
               </span>
-              <span className="px-3 py-1 bg-purple-500/20 text-purple-300 text-xs font-medium rounded-full border border-purple-400/30">
+              {product.width && product.height && (
+                <span className="px-3 py-1 bg-purple-500/20 text-purple-300 text-xs font-semibold rounded-full border border-purple-400/30 backdrop-blur-sm">
+                  {product.width}x{product.height}mm
+                </span>
+              )}
+              <span className="px-3 py-1 bg-indigo-500/20 text-indigo-300 text-xs font-semibold rounded-full border border-indigo-400/30 backdrop-blur-sm">
                 {product.category}
               </span>
               {product.color && (
-                <span className="px-3 py-1 bg-green-500/20 text-green-300 text-xs font-medium rounded-full border border-green-400/30">
+                <span className="px-3 py-1 bg-green-500/20 text-green-300 text-xs font-semibold rounded-full border border-green-400/30 backdrop-blur-sm">
                   {product.color}
+                </span>
+              )}
+              {product.coating && product.coating !== 'none' && (
+                <span className="px-3 py-1 bg-amber-500/20 text-amber-300 text-xs font-semibold rounded-full border border-amber-400/30 backdrop-blur-sm">
+                  {product.coating}
                 </span>
               )}
             </div>
           </div>
 
-          <div className="border-t border-white/20 pt-4">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Why This Match</p>
+          {/* Use Case / Application */}
+          <div className="mb-6">
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Best For</p>
+            <p className="text-sm text-gray-300 font-medium">
+              {getUseCaseText()}
+            </p>
+          </div>
+
+          {/* Key Highlight */}
+          <div className="mb-6">
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Key Feature</p>
+            <p className="text-sm text-gray-200 leading-relaxed font-medium">
+              {product.description || 'Premium quality glass solution'}
+            </p>
+          </div>
+
+          {/* Explanation Section */}
+          <div className="border-t border-white/20 pt-6">
+            <p className="text-sm font-bold text-gray-300 mb-3">Why this fits your requirement</p>
             <p className="text-sm text-gray-300 leading-relaxed">
               {product.explanation}
             </p>
@@ -622,14 +693,14 @@
                 />
                 <button
                   onClick={handleSearch}
-                  className="px-8 py-4 bg-amber-500 hover:bg-amber-400 text-black font-semibold rounded-lg transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                  className="px-8 py-4 bg-amber-500 hover:bg-amber-400 text-black font-semibold rounded-lg transition-all duration-200 ease-out hover:scale-105 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-amber-400"
                 >
                   Find Best Matches
                 </button>
                 {hasSearched && (
                   <button
                     onClick={handleClearSearch}
-                    className="px-6 py-4 bg-gray-600 hover:bg-gray-500 text-white font-medium rounded-lg transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-gray-400"
+                    className="px-6 py-4 bg-gray-600 hover:bg-gray-500 text-white font-medium rounded-lg transition-all duration-200 ease-out hover:scale-105 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-gray-400"
                   >
                     Clear Search
                   </button>

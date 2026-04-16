@@ -87,6 +87,24 @@ function parseQuery(query) {
     return result;
 }
 
+// Validate if query has meaningful attributes for matching
+function validateQuery(parsedQuery) {
+    const hasThickness = parsedQuery.thickness !== null;
+    const hasCategory = parsedQuery.category !== null;
+    const hasUseCases = parsedQuery.useCases.length > 0;
+    const hasFeatures = parsedQuery.features.length > 0;
+    const hasColor = parsedQuery.color !== null;
+    
+    // Check if query has any meaningful attributes
+    const hasMeaningfulAttributes = hasThickness || hasCategory || hasUseCases || hasFeatures || hasColor;
+    
+    // Special case: weak intents like "cheap glass" or "good glass" should be allowed
+    const hasWeakIntent = parsedQuery.features.includes('budget') || 
+                         (parsedQuery.features.length > 0 && !hasMeaningfulAttributes);
+    
+    return hasMeaningfulAttributes || hasWeakIntent;
+}
+
 function calculateScore(product, parsedQuery) {
     const result = {
         score: 0,
@@ -99,7 +117,7 @@ function calculateScore(product, parsedQuery) {
             result.score += 30;
             result.matchedFields.push('category');
         } else {
-            result.score -= 10; // Wrong category penalty
+            result.score -= 10;
         }
     }
 
@@ -114,13 +132,14 @@ function calculateScore(product, parsedQuery) {
         }
     }
 
-    // Use-case/tag match (+25)
+    // Use-case/tag match (+25) with priority boost
+    let useCaseScore = 0;
     if (parsedQuery.useCases && parsedQuery.useCases.length > 0 && product.tags) {
         const matchedTags = parsedQuery.useCases.filter(useCase => 
             product.tags.some(tag => tag.toLowerCase() === useCase.toLowerCase())
         );
         if (matchedTags.length > 0) {
-            result.score += 25;
+            useCaseScore = 25;
             result.matchedFields.push(`use-cases: ${matchedTags.join(', ')}`);
         }
     }
@@ -154,6 +173,35 @@ function calculateScore(product, parsedQuery) {
         result.matchedFields.push(...matchedFeatures);
     }
 
+    // Apply use-case priority boost (+10 extra)
+    if (useCaseScore > 0) {
+        result.score += useCaseScore + 10; // +25 base + +10 priority boost
+    }
+
+    // Strong match boost: category AND thickness match
+    const hasCategoryMatch = result.matchedFields.includes('category');
+    const hasThicknessMatch = result.matchedFields.includes('thickness (exact)') || result.matchedFields.includes('thickness (partial)');
+    if (hasCategoryMatch && hasThicknessMatch) {
+        result.score += 15;
+    }
+
+    // Multi-match boost: 3+ attributes matched
+    const attributeMatches = result.matchedFields.filter(field => 
+        field === 'category' || 
+        field.startsWith('thickness') || 
+        field === 'color' ||
+        field.startsWith('use-cases:') ||
+        field.startsWith('features:')
+    );
+    if (attributeMatches.length >= 3) {
+        result.score += 10;
+    }
+
+    // Penalize weak matches: only 1 attribute matched
+    if (attributeMatches.length === 1) {
+        result.score -= 10;
+    }
+
     // Normalize score between 0-100
     result.score = Math.max(0, Math.min(100, result.score));
 
@@ -163,6 +211,11 @@ function calculateScore(product, parsedQuery) {
 function matchProducts(query, products) {
     // Parse the query
     const parsedQuery = parseQuery(query);
+    
+    // Validate query - reject meaningless queries
+    if (!validateQuery(parsedQuery)) {
+        return [];
+    }
     
     // Score all products
     const scoredProducts = products.map(product => {
@@ -270,12 +323,8 @@ function matchProducts(query, products) {
             }
             
             if (missingAspects.length > 0) {
-                const missingText = missingAspects.length === 1 ? missingAspects[0] : 
-                                  missingAspects.length === 2 ? missingAspects.join(' and ') :
-                                  `${missingAspects.slice(0, -1).join(', ')}, and ${missingAspects[missingAspects.length - 1]}`;
-                
                 if (missingAspects.includes('thickness')) {
-                    explanation += ` However, thickness differs slightly from requirement.`;
+                    explanation += ` However, it may not fully match the requested thickness or features.`;
                 } else if (missingAspects.includes('category')) {
                     explanation += ` May not fully match the requested category.`;
                 } else if (missingAspects.includes('features')) {
@@ -288,7 +337,7 @@ function matchProducts(query, products) {
                     explanation += ` Some specifications may differ from requirements.`;
                 }
             } else {
-                explanation += ` Partial match with some specification differences.`;
+                explanation += ` However, it may not fully match the requested thickness or features.`;
             }
         }
         
@@ -307,14 +356,18 @@ function matchProducts(query, products) {
         
         // Tie-break: if query includes "budget", prioritize lower price
         if (parsedQuery.features.includes('budget')) {
-            return (a.price || 0) - (b.price || 0);
+            return (a.pricePerSqm || 0) - (b.pricePerSqm || 0);
         }
         
         return 0;
     });
     
-    // Return top 5 results
-    return scoredProducts.slice(0, 5);
+    // Apply minimum relevance threshold (30)
+    const MIN_RELEVANCE_THRESHOLD = 30;
+    const relevantProducts = scoredProducts.filter(product => product.score >= MIN_RELEVANCE_THRESHOLD);
+    
+    // Return top 5 relevant results
+    return relevantProducts.slice(0, 5);
 }
 
 // Example usage and test cases
